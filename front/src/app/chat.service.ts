@@ -27,6 +27,7 @@ export interface ChatMessage {
   mine: boolean;
   kind: 'text' | 'gif' | 'smiley';
   body: string;
+  glyphs: string[];
   created: string;
   state: Receipt;
   reactions: Reaction[];
@@ -88,6 +89,8 @@ export class ChatService {
   private readonly pendingReceipts = new Map<number, Receipt>();
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private refreshFlight: Promise<boolean> | null = null;
+  private recoverFlight: Promise<void> | null = null;
+  private intentionalStop = false;
   private atBottom = true;
   private readonly readIds = new Set<number>();
 
@@ -115,22 +118,12 @@ export class ChatService {
       try {
         await this.connect();
       } catch {
-        this.clearSession();
+        void this.recoverConnection();
       }
       return;
     }
-
-    const token = sessionStorage.getItem('barya.token');
-    const me = sessionStorage.getItem('barya.me');
-    const peer = sessionStorage.getItem('barya.peer');
-    if (!token || !me || !peer) return;
-
-    this.session.set({ token, me, peer });
-    this.scheduleRefresh(token);
-    try {
-      await this.connect();
-    } catch {
-      this.clearSession();
+    if (restored === 'down' && this.readStoredSession()) {
+      void this.recoverConnection();
     }
   }
 
@@ -149,23 +142,18 @@ export class ChatService {
       return;
     }
 
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-      token?: string;
-      displayName?: string;
-      peerName?: string;
-    } | null;
-    if (!response.ok || !body?.token || !body.displayName || !body.peerName) {
-      this.loginError.set(body?.error ?? 'Identifiant ou mot de passe incorrect.');
+    const body = (await response.json().catch(() => null)) as SessionPayload | { error?: string } | null;
+    if (!response.ok || !isSessionPayload(body)) {
+      this.loginError.set(body && 'error' in body && body.error ? body.error : 'Identifiant ou mot de passe incorrect.');
       return;
     }
 
-    this.applySession(body.token, body.displayName, body.peerName);
+    this.applySession(body);
     try {
       await this.connect();
     } catch {
-      this.clearSession();
       this.loginError.set('Le salon ne répond pas.');
+      void this.recoverConnection();
     }
   }
 
@@ -197,7 +185,14 @@ export class ChatService {
 
   logout(): void {
     this.stopTyping();
-    void fetch(`${this.apiBase}/api/logout`, { method: 'POST', credentials: 'include' }).catch(() => undefined);
+    const refresh = localStorage.getItem('barya.refresh');
+    const renew = localStorage.getItem('barya.renew');
+    void fetch(`${this.apiBase}/api/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh, renew }),
+    }).catch(() => undefined);
     this.clearSession();
   }
 
@@ -261,6 +256,7 @@ export class ChatService {
       mine: true,
       kind,
       body,
+      glyphs: kind === 'text' ? segmentGlyphs(body) : [],
       created: new Date().toISOString(),
       state: 'sending',
       reactions: [],
@@ -299,7 +295,9 @@ export class ChatService {
   }
 
   private async connect(): Promise<void> {
+    this.intentionalStop = true;
     await this.connection?.stop();
+    this.intentionalStop = false;
     const connection = new HubConnectionBuilder()
       .withUrl(this.hubUrl(), {
         withCredentials: true,
@@ -308,7 +306,7 @@ export class ChatService {
           return this.session()?.token ?? '';
         },
       })
-      .withAutomaticReconnect()
+      .withAutomaticReconnect([0, 1000, 2000, 5000, 10000, 15000, 30000])
       .build();
 
     connection.on('hello', (payload: { peer?: string; peerPresence?: string }) => {
@@ -365,7 +363,10 @@ export class ChatService {
       void this.pushPresence(true);
     });
     connection.onreconnecting(() => this.ready.set(false));
-    connection.onclose(() => this.ready.set(false));
+    connection.onclose(() => {
+      this.ready.set(false);
+      if (!this.intentionalStop) void this.recoverConnection();
+    });
 
     this.connection = connection;
     await connection.start();
@@ -472,23 +473,41 @@ export class ChatService {
     }
   }
 
-  private applySession(token: string, me: string, peer: string): void {
+  private applySession(payload: SessionPayload): void {
+    this.session.set({ token: payload.token, me: payload.displayName, peer: payload.peerName });
+    localStorage.setItem('barya.token', payload.token);
+    localStorage.setItem('barya.me', payload.displayName);
+    localStorage.setItem('barya.peer', payload.peerName);
+    if (payload.refresh) localStorage.setItem('barya.refresh', payload.refresh);
+    if (payload.renew) localStorage.setItem('barya.renew', payload.renew);
+    this.scheduleRefresh(payload.token);
+  }
+
+  private readStoredSession(): boolean {
+    const token = localStorage.getItem('barya.token');
+    const me = localStorage.getItem('barya.me');
+    const peer = localStorage.getItem('barya.peer');
+    const refresh = localStorage.getItem('barya.refresh');
+    const renew = localStorage.getItem('barya.renew');
+    if (!token || !me || !peer || (!refresh && !renew)) return false;
     this.session.set({ token, me, peer });
-    sessionStorage.setItem('barya.token', token);
-    sessionStorage.setItem('barya.me', me);
-    sessionStorage.setItem('barya.peer', peer);
     this.scheduleRefresh(token);
+    return true;
   }
 
   private async ensureAccess(): Promise<void> {
     const token = this.session()?.token;
     if (token && tokenExpiry(token) - Date.now() > 30_000) return;
-    await this.refresh();
+    const ok = await this.refresh();
+    if (!ok && !this.session()?.token) this.clearSession();
   }
 
   private refresh(): Promise<boolean> {
     this.refreshFlight ??= this.refreshOnce()
-      .then((outcome) => outcome === 'ok')
+      .then((outcome) => {
+        if (outcome === 'no') this.clearSession();
+        return outcome === 'ok';
+      })
       .finally(() => {
         this.refreshFlight = null;
       });
@@ -496,21 +515,24 @@ export class ChatService {
   }
 
   private async refreshOnce(): Promise<'ok' | 'no' | 'down'> {
+    const refresh = localStorage.getItem('barya.refresh');
+    const renew = localStorage.getItem('barya.renew');
     let response: Response;
     try {
-      response = await fetch(`${this.apiBase}/api/refresh`, { method: 'POST', credentials: 'include' });
+      response = await fetch(`${this.apiBase}/api/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh, renew }),
+      });
     } catch {
       return 'down';
     }
     if (response.status === 401) return 'no';
     if (!response.ok) return 'down';
-    const body = (await response.json().catch(() => null)) as {
-      token?: string;
-      displayName?: string;
-      peerName?: string;
-    } | null;
-    if (!body?.token || !body.displayName || !body.peerName) return 'no';
-    this.applySession(body.token, body.displayName, body.peerName);
+    const body = (await response.json().catch(() => null)) as SessionPayload | null;
+    if (!isSessionPayload(body)) return 'no';
+    this.applySession(body);
     return 'ok';
   }
 
@@ -522,11 +544,49 @@ export class ChatService {
 
   private async renewLater(): Promise<void> {
     const outcome = await this.refreshOnce();
-    if (outcome === 'no') this.clearSession();
-    else if (outcome === 'down') this.refreshTimer = setTimeout(() => void this.renewLater(), 30_000);
+    if (outcome === 'ok') return;
+    if (outcome === 'no') {
+      this.clearSession();
+      return;
+    }
+    this.refreshTimer = setTimeout(() => void this.renewLater(), 15_000);
+  }
+
+  private recoverConnection(): Promise<void> {
+    this.recoverFlight ??= this.runRecover().finally(() => {
+      this.recoverFlight = null;
+    });
+    return this.recoverFlight;
+  }
+
+  private async runRecover(): Promise<void> {
+    if (!this.session() && !this.readStoredSession()) return;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (!this.session() && !this.readStoredSession()) return;
+      const outcome = await this.refreshOnce();
+      if (outcome === 'no') {
+        this.clearSession();
+        return;
+      }
+      if (outcome === 'ok' || this.session()?.token) {
+        try {
+          if (this.connection?.state === HubConnectionState.Connected) {
+            this.ready.set(true);
+            await this.pushPresence(true);
+            return;
+          }
+          await this.connect();
+          return;
+        } catch {
+          // retry below
+        }
+      }
+      await wait(Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5)));
+    }
   }
 
   private clearSession(): void {
+    this.intentionalStop = true;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
     this.session.set(null);
@@ -541,13 +601,38 @@ export class ChatService {
     this.readIds.clear();
     this.sentPresence = null;
     this.pendingReceipts.clear();
+    localStorage.removeItem('barya.token');
+    localStorage.removeItem('barya.me');
+    localStorage.removeItem('barya.peer');
+    localStorage.removeItem('barya.refresh');
+    localStorage.removeItem('barya.renew');
     sessionStorage.removeItem('barya.token');
     sessionStorage.removeItem('barya.me');
     sessionStorage.removeItem('barya.peer');
     const connection = this.connection;
     this.connection = null;
-    void connection?.stop();
+    void connection?.stop().finally(() => {
+      this.intentionalStop = false;
+    });
   }
+}
+
+interface SessionPayload {
+  token: string;
+  displayName: string;
+  peerName: string;
+  refresh?: string;
+  renew?: string;
+}
+
+function isSessionPayload(value: unknown): value is SessionPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record['token'] === 'string' && typeof record['displayName'] === 'string' && typeof record['peerName'] === 'string';
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function asPresence(value: unknown): Presence {
@@ -593,16 +678,25 @@ function asReactions(value: unknown): Reaction[] {
 }
 
 function toChat(wire: Wire): ChatMessage {
+  const kind = wire.kind === 'gif' ? 'gif' : wire.kind === 'smiley' ? 'smiley' : 'text';
   return {
     key: `id:${wire.id}`,
     id: wire.id,
     mine: wire.mine,
-    kind: wire.kind === 'gif' ? 'gif' : wire.kind === 'smiley' ? 'smiley' : 'text',
+    kind,
     body: wire.body,
+    glyphs: kind === 'text' ? segmentGlyphs(wire.body) : [],
     created: wire.created,
     state: asReceipt(wire.state) ?? (wire.mine ? 'sent' : 'unread'),
     reactions: wire.reactions,
   };
+}
+
+function segmentGlyphs(text: string): string[] {
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map((part) => part.segment);
+  }
+  return [...text];
 }
 
 function toggleReaction(reactions: Reaction[], emoji: string): Reaction[] {

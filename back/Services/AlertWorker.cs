@@ -45,7 +45,6 @@ public sealed class AlertWorker(
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<BaryaDb>();
-        var cipher = scope.ServiceProvider.GetRequiredService<MessageCipher>();
         var users = scope.ServiceProvider.GetRequiredService<UserDirectory>();
         var due = DateTime.UtcNow.AddSeconds(-10);
         var pending = await db.Messages
@@ -57,23 +56,6 @@ public sealed class AlertWorker(
 
         foreach (var message in pending)
         {
-            string text;
-            try
-            {
-                var plain = cipher.Open(message.Nonce, message.Cipher);
-                text = message.Kind == "gif" ? "GIF " + plain : plain;
-                if (text.Length > 500)
-                    text = text[..500];
-            }
-            catch (Exception ex)
-            {
-                log.LogWarning("Message {Id} illisible, alerte ignorée : {Message}", message.Id, ex.Message);
-                await db.Database.ExecuteSqlInterpolatedAsync(
-                    $"UPDATE Messages SET AlertedAt = SYSUTCDATETIME() WHERE Id = {message.Id}",
-                    cancellationToken);
-                continue;
-            }
-
             var author = users.Get(message.SenderId);
             var recipient = users.Peer(message.SenderId);
             string? channel = null;
@@ -102,8 +84,8 @@ public sealed class AlertWorker(
 
             try
             {
-                await Post(key, channel, author.Name + ": Message", text, cancellationToken);
-                log.LogInformation("Alerte envoyée pour le message {Id}", message.Id);
+                await Post(key, channel, author.Name + ": Message", "Vous avez reçu un message", cancellationToken);
+                log.LogInformation("Alerte envoyée pour le message {Id} sur {Channel}", message.Id, channel);
             }
             catch
             {

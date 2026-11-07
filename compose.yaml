@@ -32,7 +32,7 @@ services:
       BARI_PASSWORD: BariLocal!
       FREYA_PASSWORD: FreyaLocal!
       API_ALERTS_KEY: ""
-      API_ALERTS_CHANNEL: Bari
+      API_ALERTS_CHANNEL: bari
       ASPNETCORE_URLS: http://+:8080
     depends_on:
       sqlserver:

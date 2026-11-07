@@ -33,10 +33,15 @@ public static class SessionCookies
         return Pack(config, account, row.Id, refresh, renew);
     }
 
-    public static async Task<Issued?> Renew(HttpRequest request, BaryaDb db, IConfiguration config)
+    public static async Task<Issued?> Renew(
+        HttpRequest request,
+        BaryaDb db,
+        IConfiguration config,
+        string? refreshRaw = null,
+        string? renewRaw = null)
     {
-        var refresh = Read(request.Cookies[RefreshName]);
-        var renew = Read(request.Cookies[RenewName]);
+        var refresh = Read(refreshRaw) ?? Read(request.Cookies[RefreshName]);
+        var renew = Read(renewRaw) ?? Read(request.Cookies[RenewName]);
         var byRefresh = refresh is null ? null : await db.Sessions.FirstOrDefaultAsync(session => session.Id == refresh.Value.Id);
         var byRenew = renew is null ? null : await db.Sessions.FirstOrDefaultAsync(session => session.Id == renew.Value.Id);
         var refreshOk = byRefresh is not null && refresh is not null
@@ -45,28 +50,50 @@ public static class SessionCookies
         var renewOk = byRenew is not null && renew is not null
             && Matches(byRenew.RenewHash, renew.Value.Secret)
             && byRenew.RenewExpires > DateTime.UtcNow;
-        var row = refreshOk ? byRefresh : renewOk ? byRenew : null;
-        if (row is null)
+
+        AuthSession? row = null;
+        string nextRefresh;
+        string nextRenew;
+        if (refreshOk && byRefresh is not null)
+        {
+            row = byRefresh;
+            nextRefresh = NewSecret();
+            nextRenew = renew is not null && Matches(row.RenewHash, renew.Value.Secret)
+                ? renew.Value.Secret
+                : NewSecret();
+            row.RefreshHash = Hash(nextRefresh);
+            row.RefreshExpires = DateTime.UtcNow.Add(RefreshLifetime);
+            if (!Matches(row.RenewHash, nextRenew))
+                row.RenewHash = Hash(nextRenew);
+            row.RenewExpires = DateTime.UtcNow.Add(RenewLifetime);
+        }
+        else if (renewOk && byRenew is not null)
+        {
+            row = byRenew;
+            nextRefresh = NewSecret();
+            nextRenew = NewSecret();
+            row.RefreshHash = Hash(nextRefresh);
+            row.RefreshExpires = DateTime.UtcNow.Add(RefreshLifetime);
+            row.RenewHash = Hash(nextRenew);
+            row.RenewExpires = DateTime.UtcNow.Add(RenewLifetime);
+        }
+        else
+        {
             return null;
+        }
 
         var account = await db.Accounts.FirstOrDefaultAsync(item => item.Id == row.AccountId);
         if (account is null)
             return null;
 
-        var nextRefresh = NewSecret();
-        var nextRenew = NewSecret();
-        row.RefreshHash = Hash(nextRefresh);
-        row.RefreshExpires = DateTime.UtcNow.Add(RefreshLifetime);
-        row.RenewHash = Hash(nextRenew);
-        row.RenewExpires = DateTime.UtcNow.Add(RenewLifetime);
         await db.SaveChangesAsync();
         return Pack(config, account, row.Id, nextRefresh, nextRenew);
     }
 
-    public static async Task Close(HttpRequest request, BaryaDb db)
+    public static async Task Close(HttpRequest request, BaryaDb db, string? refreshRaw = null, string? renewRaw = null)
     {
-        var refresh = Read(request.Cookies[RefreshName]);
-        var renew = Read(request.Cookies[RenewName]);
+        var refresh = Read(refreshRaw) ?? Read(request.Cookies[RefreshName]);
+        var renew = Read(renewRaw) ?? Read(request.Cookies[RenewName]);
         if (refresh is not null)
             await Drop(db, refresh.Value.Id, refresh.Value.Secret, hashOfRefresh: true);
         if (renew is not null)
@@ -105,27 +132,45 @@ public static class SessionCookies
 
     private static void Append(HttpContext http, string name, string value, TimeSpan life)
     {
-        var https = http.Request.IsHttps;
-        http.Response.Cookies.Append(name, value, new CookieOptions
+        var secure = Secure(http.Request);
+        var options = new CookieOptions
         {
             HttpOnly = true,
-            Secure = https,
-            SameSite = https ? SameSiteMode.None : SameSiteMode.Lax,
+            Secure = secure,
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
             MaxAge = life,
             Path = "/",
             IsEssential = true,
-        });
+        };
+        if (secure)
+            options.Extensions.Add("Partitioned");
+        http.Response.Cookies.Append(name, value, options);
     }
 
     private static void Delete(HttpContext http, string name)
     {
-        var https = http.Request.IsHttps;
-        http.Response.Cookies.Delete(name, new CookieOptions
+        var secure = Secure(http.Request);
+        var options = new CookieOptions
         {
             Path = "/",
-            Secure = https,
-            SameSite = https ? SameSiteMode.None : SameSiteMode.Lax,
-        });
+            Secure = secure,
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
+        };
+        if (secure)
+            options.Extensions.Add("Partitioned");
+        http.Response.Cookies.Delete(name, options);
+    }
+
+    private static bool Secure(HttpRequest request)
+    {
+        if (request.IsHttps)
+            return true;
+        var proto = request.Headers["X-Forwarded-Proto"].ToString();
+        if (proto.Equals("https", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var forced = Environment.GetEnvironmentVariable("COOKIE_SECURE");
+        return string.Equals(forced, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(forced, "1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static (long Id, string Secret)? Read(string? raw)

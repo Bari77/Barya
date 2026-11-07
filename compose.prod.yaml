@@ -38,6 +38,7 @@ services:
       FREYA_PASSWORD: ${FREYA_PASSWORD:?FREYA_PASSWORD requis}
       API_ALERTS_KEY: ${API_ALERTS_KEY:-}
       API_ALERTS_CHANNEL: ${API_ALERTS_CHANNEL:-}
+      COOKIE_SECURE: "true"
     depends_on:
       sqlserver:
         condition: service_healthy

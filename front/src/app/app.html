@@ -20,7 +20,7 @@
             />
           </label>
           <p class="deck">
-            Les messages que tu n’as pas lus arrivent sur ce canal. L’alerte indique le pseudo, par exemple « Bari : Message ».
+            Les messages que tu n’as pas lus arrivent sur ce canal (par exemple bari ou freya). Le titre indique le pseudo, le texte reste générique.
             Laisse le champ vide pour ne plus en recevoir.
           </p>
           @if (settingsNote()) {
@@ -107,7 +107,7 @@
             <div class="bubble smiley-bubble">{{ message.body }}</div>
           } @else {
             <div class="bubble alphaya">
-              @for (glyph of glyphs(message.body); track $index) {
+              @for (glyph of message.glyphs; track $index) {
                 @if (glyph === ' ') {
                   <span class="gap"> </span>
                 } @else if (isSmiley(glyph)) {
@@ -209,7 +209,7 @@
           (keydown)="onComposeKey($event)"
           (pointerdown)="placeCaret($event)"
         >
-          @for (glyph of glyphs(draft()); track $index) {
+          @for (glyph of draftGlyphs(); track $index) {
             @if (caret() === $index) {
               <span class="caret" aria-hidden="true"></span>
             }
@@ -221,7 +221,7 @@
               <span class="glyph">{{ glyph }}</span>
             }
           }
-          @if (caret() >= glyphs(draft()).length) {
+          @if (caret() >= draftGlyphs().length) {
             <span class="caret" aria-hidden="true"></span>
           }
         </div>

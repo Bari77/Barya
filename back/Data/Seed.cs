@@ -26,10 +26,20 @@ public static class Seed
 
         foreach (var person in people)
         {
-            if (await db.Settings.AnyAsync(item => item.AccountId == person.Id))
+            var setting = await db.Settings.FirstOrDefaultAsync(item => item.AccountId == person.Id);
+            if (setting is null)
+            {
+                db.Settings.Add(new UserSetting { AccountId = person.Id, AlertChannel = person.Login });
+                log.LogInformation("Canal d'alerte {Channel} pour {Login}", person.Login, person.Login);
                 continue;
-            db.Settings.Add(new UserSetting { AccountId = person.Id, AlertChannel = person.Name });
-            log.LogInformation("Canal d'alerte {Channel} pour {Login}", person.Name, person.Login);
+            }
+
+            if (string.Equals(setting.AlertChannel, person.Name, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(setting.AlertChannel, person.Login, StringComparison.Ordinal))
+            {
+                setting.AlertChannel = person.Login;
+                log.LogInformation("Canal d'alerte corrigé en {Channel} pour {Login}", person.Login, person.Login);
+            }
         }
 
         await db.SaveChangesAsync();

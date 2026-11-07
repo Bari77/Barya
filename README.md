@@ -19,7 +19,7 @@ Pour les changer, modifie `BARI_PASSWORD` et `FREYA_PASSWORD` dans `compose.yaml
 
 ## Notifications
 
-Si un message reste non lu 10 secondes après l’envoi, le serveur appelle API Alerts sur le canal de la personne qui n’a pas lu. Un message de Freya part sur le canal de Bari, et un message de Bari sur le canal de Freya. Le titre a la forme `Bari : Message`. Chacun règle son canal dans les réglages du salon. Renseigne `API_ALERTS_KEY` dans le service `api`, puis relance le conteneur.
+Si un message reste non lu 10 secondes après l’envoi, le serveur appelle API Alerts sur le canal de la personne qui n’a pas lu. Un message de Freya part sur le canal `bari`, et un message de Bari sur le canal `freya`. Le titre a la forme `Bari : Message`, le texte est « Vous avez reçu un message ». Chacun règle son canal dans les réglages du salon. Renseigne `API_ALERTS_KEY` dans le service `api`, puis relance le conteneur.
 
 ## GIF et clavier
 

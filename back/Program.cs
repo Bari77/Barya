@@ -106,13 +106,15 @@ app.MapPost("/api/login", async (
     return Results.Ok(new
     {
         token = issued.Access,
+        refresh = issued.RefreshCookie,
+        renew = issued.RenewCookie,
         displayName = account.DisplayName,
         peerName = peer.Name,
     });
 });
-app.MapPost("/api/refresh", async (HttpContext http, BaryaDb db, UserDirectory users, IConfiguration config) =>
+app.MapPost("/api/refresh", async (RefreshBody? body, HttpContext http, BaryaDb db, UserDirectory users, IConfiguration config) =>
 {
-    var issued = await SessionCookies.Renew(http.Request, db, config);
+    var issued = await SessionCookies.Renew(http.Request, db, config, body?.Refresh, body?.Renew);
     if (issued is null)
     {
         SessionCookies.Clear(http);
@@ -124,6 +126,8 @@ app.MapPost("/api/refresh", async (HttpContext http, BaryaDb db, UserDirectory u
     return Results.Ok(new
     {
         token = issued.Access,
+        refresh = issued.RefreshCookie,
+        renew = issued.RenewCookie,
         displayName = account.DisplayName,
         peerName = users.Peer(account.Id).Name,
     });
@@ -155,9 +159,9 @@ app.MapPut("/api/settings", async (SettingsBody body, HttpContext http, BaryaDb 
     await db.SaveChangesAsync();
     return Results.Ok(new { alertChannel = channel });
 }).RequireAuthorization();
-app.MapPost("/api/logout", async (HttpContext http, BaryaDb db) =>
+app.MapPost("/api/logout", async (RefreshBody? body, HttpContext http, BaryaDb db) =>
 {
-    await SessionCookies.Close(http.Request, db);
+    await SessionCookies.Close(http.Request, db, body?.Refresh, body?.Renew);
     SessionCookies.Clear(http);
     return Results.Ok(new { ok = true });
 });
@@ -234,5 +238,7 @@ sealed class SubUserIdProvider : IUserIdProvider
 }
 
 sealed record LoginBody(string? Login, string? Password);
+
+sealed record RefreshBody(string? Refresh, string? Renew);
 
 sealed record SettingsBody(string? AlertChannel);

@@ -1,4 +1,4 @@
-import { afterEveryRender, Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { afterEveryRender, Component, computed, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { ChatService, type ChatMessage } from './chat.service';
 import { smileys } from './smileys';
 
@@ -23,6 +23,7 @@ export class App {
   protected readonly pendingNew = signal(0);
   protected readonly reactionMenu = signal<{ id: number; x: number; y: number } | null>(null);
   protected readonly smileys = smileys;
+  protected readonly draftGlyphs = computed(() => this.glyphs(this.draft()));
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
   private readonly composeBox = viewChild<ElementRef<HTMLElement>>('compose');
   private allSelected = false;
@@ -48,6 +49,10 @@ export class App {
       if (!element) return;
       const list = this.chat.messages();
       const last = list.at(-1)?.key ?? '';
+      const tail = this.chat.tail();
+      if (!this.anchor && tail === this.seenTail && list.length === this.seenCount && last === this.seenLast) {
+        return;
+      }
       if (this.anchor) {
         this.assignScroll(element, element.scrollHeight - this.anchor.height + this.anchor.top);
         if (element.scrollHeight !== this.anchor.height) this.anchor = null;
@@ -55,8 +60,8 @@ export class App {
         this.seenLast = last;
         return;
       }
-      if (this.chat.tail() !== this.seenTail) {
-        this.seenTail = this.chat.tail();
+      if (tail !== this.seenTail) {
+        this.seenTail = tail;
         this.stick = true;
         this.pendingNew.set(0);
         this.seenCount = list.length;
