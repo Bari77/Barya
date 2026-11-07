@@ -1,0 +1,60 @@
+name: barya
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Barya_Local_Dev_2026!"
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - barya-sql:/var/opt/mssql
+    shm_size: 1gb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/1433'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 25s
+
+  api:
+    build: ./back
+    environment:
+      SQL_SERVER: sqlserver
+      SQL_PORT: "1433"
+      SQL_USER: sa
+      SQL_PASSWORD: "Barya_Local_Dev_2026!"
+      SQL_DATABASE: barya
+      BARYA_KEY: local-dev-key-change-me
+      BARI_PASSWORD: BariLocal!
+      FREYA_PASSWORD: FreyaLocal!
+      API_ALERTS_KEY: ""
+      API_ALERTS_CHANNEL: Bari
+      ASPNETCORE_URLS: http://+:8080
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+
+  web:
+    build: ./front
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  barya-sql:

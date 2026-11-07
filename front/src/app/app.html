@@ -1,0 +1,312 @@
+@if (chat.session(); as session) {
+  <div class="shell" (keydown)="onChatKey($event)">
+    @if (showSettings()) {
+      <div class="settings-page">
+        <header class="top">
+          <button type="button" class="btn btn-quiet" (click)="closeSettings()">Retour</button>
+          <p class="settings-title">Réglages</p>
+        </header>
+        <form class="settings-body" (submit)="saveChannel($event)">
+          <p class="settings-account">{{ session.me }}</p>
+          <label class="field">
+            <span>Canal d’alerte</span>
+            <input
+              type="text"
+              name="channel"
+              maxlength="64"
+              autocomplete="off"
+              [value]="alertChannel()"
+              (input)="onChannel($event)"
+            />
+          </label>
+          <p class="deck">
+            Les messages que tu n’as pas lus arrivent sur ce canal. L’alerte indique le pseudo, par exemple « Bari : Message ».
+            Laisse le champ vide pour ne plus en recevoir.
+          </p>
+          @if (settingsNote()) {
+            <p class="note">{{ settingsNote() }}</p>
+          }
+          <div class="settings-actions">
+            <button type="submit" class="btn btn-primary">Enregistrer</button>
+            <button type="button" class="btn btn-quiet" (click)="quit()">Quitter</button>
+          </div>
+        </form>
+      </div>
+    }
+    <div class="chat-body" [hidden]="showSettings()">
+    <header class="top">
+      <div class="who">
+        <span class="mono" aria-hidden="true">{{ initial(session.peer) }}</span>
+        <span class="idblock">
+          <span class="name-row">
+            <span class="name">{{ session.peer }}</span>
+            <span
+              class="pill"
+              [attr.aria-label]="session.peer + ', ' + presenceLabel(chat.presenceOf(session.peer))"
+              [class.is-online]="chat.presenceOf(session.peer) === 'online'"
+              [class.is-away]="chat.presenceOf(session.peer) === 'away'"
+              [class.is-afk]="chat.presenceOf(session.peer) === 'afk'"
+              [class.is-offline]="chat.presenceOf(session.peer) === 'offline'"
+            >
+              <span class="dot" aria-hidden="true"></span>
+              <span>{{ presenceLabel(chat.presenceOf(session.peer)) }}</span>
+            </span>
+          </span>
+          @if (chat.typing()) {
+            <span class="typing">{{ session.peer }} écrit…</span>
+          }
+        </span>
+      </div>
+      <button
+        type="button"
+        class="btn btn-quiet icon-btn"
+        [attr.aria-pressed]="showSettings()"
+        aria-label="Réglages"
+        (click)="toggleSettings()"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <path
+            d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div class="thread-wrap">
+    <div class="thread" #thread (wheel)="onThreadWheel($event)" (scroll)="onThreadScroll()">
+      @if (chat.loadingOlder()) {
+        <p class="older">Chargement…</p>
+      } @else if (chat.hasOlder()) {
+        <p class="older">Messages plus anciens</p>
+      }
+      @if (chat.messages().length === 0) {
+        <p class="empty">Le fil est vide. Écris le premier message.</p>
+      }
+      @for (message of chat.messages(); track message.key) {
+        <div
+          class="msg"
+          [class.out]="message.mine"
+          [class.in]="!message.mine"
+          [class.unread]="!message.mine && message.state === 'unread'"
+          (contextmenu)="openReaction($event, message)"
+          (pointerdown)="holdReaction($event, message)"
+          (pointermove)="moveReaction($event)"
+          (pointerup)="cancelHold()"
+          (pointercancel)="cancelHold()"
+        >
+          @if (message.kind === 'gif') {
+            <div class="bubble gif-bubble">
+              <img [src]="chat.gifUrl(message.body)" [alt]="message.body" />
+            </div>
+          } @else if (message.kind === 'smiley') {
+            <div class="bubble smiley-bubble">{{ message.body }}</div>
+          } @else {
+            <div class="bubble alphaya">
+              @for (glyph of glyphs(message.body); track $index) {
+                @if (glyph === ' ') {
+                  <span class="gap"> </span>
+                } @else if (isSmiley(glyph)) {
+                  <span class="smiley-inline">{{ glyph }}</span>
+                } @else {
+                  <span class="glyph">{{ glyph }}</span>
+                }
+              }
+            </div>
+          }
+          @if (message.reactions.length > 0) {
+            <div class="reacts">
+              @for (reaction of message.reactions; track reaction.emoji) {
+                <button
+                  type="button"
+                  class="react"
+                  [class.mine]="reaction.mine"
+                  (click)="toggleReaction(message, reaction.emoji)"
+                >
+                  {{ reaction.emoji }} {{ reaction.count }}
+                </button>
+              }
+            </div>
+          }
+          <div class="meta">
+            @if (!message.mine && message.state === 'unread') {
+              <span class="uread" aria-hidden="true"></span>
+            }
+            @if (message.mine && (message.state === 'received' || message.state === 'read')) {
+              <span class="ticks" [class.lu-ticks]="message.state === 'read'" aria-hidden="true">
+                <svg viewBox="0 0 18 10"><path d="M1 5.5 4 8.5 10 2M7 5.5 10 8.5 16.5 1.5" /></svg>
+              </span>
+            }
+            @if (message.mine && message.state === 'sent') {
+              <span class="ticks" aria-hidden="true">
+                <svg viewBox="0 0 12 10"><path d="M1 5.5 4 8.5 11 1.5" /></svg>
+              </span>
+            }
+            <span>{{ receipt(message.state) }}</span>
+            <span class="when">{{ clock(message.created) }}</span>
+          </div>
+        </div>
+      }
+    </div>
+    @if (pendingNew() > 0) {
+      <button type="button" class="new-messages" (click)="followThread()">{{ newMessagesLabel() }}</button>
+    }
+    </div>
+
+    @if (!chat.ready()) {
+      <p class="note">Connexion en cours.</p>
+    }
+    <div class="dock" [class.open]="showGifs() || showSmileys()">
+      <div
+        class="picker-slot"
+        [class.open]="showGifs() || showSmileys()"
+        [attr.inert]="showGifs() || showSmileys() ? null : ''"
+      >
+        <div class="picker-clip">
+        <div class="picker">
+          @if (pane() === 'gif') {
+            <p class="summary">
+              @if (selectedGif()) {
+                {{ selectedGif() }} est prêt à envoyer.
+              } @else {
+                Choisis un GIF.
+              }
+            </p>
+            <div class="gif-grid" role="group" aria-label="GIFs">
+              @for (gif of chat.gifs(); track gif.name) {
+                <button type="button" class="gif-tile" [attr.aria-pressed]="selectedGif() === gif.name" (click)="chooseGif(gif.name)">
+                  <img [src]="gif.url" [alt]="gif.name" />
+                  <span>{{ gif.name }}</span>
+                </button>
+              }
+            </div>
+          } @else {
+            <p class="summary">Ajoute un smiley au message.</p>
+            <div class="smiley-grid" role="group" aria-label="Smileys">
+              @for (smiley of smileys; track smiley) {
+                <button type="button" class="smiley-tile" (click)="chooseSmiley(smiley)">
+                  {{ smiley }}
+                </button>
+              }
+            </div>
+          }
+        </div>
+        </div>
+      </div>
+
+    <div class="composer keys-composer">
+      <div class="compose-wrap">
+        <div
+          #compose
+          class="compose alphaya"
+          role="textbox"
+          tabindex="0"
+          aria-label="Message"
+          (keydown)="onComposeKey($event)"
+          (pointerdown)="placeCaret($event)"
+        >
+          @for (glyph of glyphs(draft()); track $index) {
+            @if (caret() === $index) {
+              <span class="caret" aria-hidden="true"></span>
+            }
+            @if (glyph === ' ') {
+              <span class="gap"> </span>
+            } @else if (isSmiley(glyph)) {
+              <span class="smiley-inline">{{ glyph }}</span>
+            } @else {
+              <span class="glyph">{{ glyph }}</span>
+            }
+          }
+          @if (caret() >= glyphs(draft()).length) {
+            <span class="caret" aria-hidden="true"></span>
+          }
+        </div>
+        @if (!draft()) {
+          <p class="hint">Écrire un message</p>
+        }
+      </div>
+    </div>
+    </div>
+    @if (composeError()) {
+      <p class="note err">{{ composeError() }}</p>
+    }
+
+    <div class="board" aria-label="Clavier Alphaya">
+      @for (row of rows; track $index) {
+        <div class="row">
+          @for (key of row; track key) {
+            <button type="button" class="key" [class.key-gap]="key === 'Y'" (click)="press(key)">{{ key }}</button>
+          }
+        </div>
+      }
+      <div class="row row-low">
+        @for (key of low; track key) {
+          <button type="button" class="key" (click)="press(key)">{{ key }}</button>
+        }
+        <button type="button" class="key fn" (click)="press('backspace')">Effacer</button>
+      </div>
+      <div class="row row-space">
+        <button
+          type="button"
+          class="key fn gif-toggle"
+          [attr.aria-pressed]="showGifs()"
+          aria-label="GIFs"
+          (click)="toggleGifs()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <circle cx="9" cy="10" r="1.4" fill="currentColor" />
+            <path d="M4 16.5 9 12l3 2.5 3-2 5 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="key fn gif-toggle"
+          [attr.aria-pressed]="showSmileys()"
+          aria-label="Smileys"
+          (click)="toggleSmileys()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <circle cx="9" cy="10.2" r="1" fill="currentColor" />
+            <circle cx="15" cy="10.2" r="1" fill="currentColor" />
+            <path d="M8.6 14.2c.9 1.3 2 1.9 3.4 1.9s2.5-.6 3.4-1.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button type="button" class="key fn space" (click)="press(' ')">Espace</button>
+        <button type="button" class="key fn send-key" (click)="send()">Envoyer</button>
+      </div>
+    </div>
+    @if (reactionMenu(); as menu) {
+      <div class="smiley-menu" role="menu" aria-label="Réaction" [style.left.px]="menu.x" [style.top.px]="menu.y">
+        @for (smiley of smileys; track smiley) {
+          <button type="button" class="smiley-key" (click)="toggleReactionId(menu.id, smiley)">{{ smiley }}</button>
+        }
+      </div>
+    }
+    </div>
+  </div>
+} @else {
+  <div class="shell">
+    <form class="login" (submit)="enter($event)">
+      <p class="wordmark">Barya</p>
+      <p class="deck">Bari et Freya, un salon.</p>
+      <label class="field">
+        <span>Identifiant</span>
+        <input type="text" name="username" autocomplete="username" placeholder="bari" />
+      </label>
+      <label class="field">
+        <span>Mot de passe</span>
+        <input type="password" name="password" autocomplete="current-password" />
+      </label>
+      @if (chat.loginError()) {
+        <p class="note err">{{ chat.loginError() }}</p>
+      }
+      <button type="submit" class="btn btn-primary btn-block">Entrer</button>
+    </form>
+  </div>
+}
