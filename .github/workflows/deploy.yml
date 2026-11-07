@@ -60,7 +60,12 @@ jobs:
         working-directory: front
         env:
           API_BASE: ${{ vars.API_BASE }}
-        run: node -e "const fs=require('fs'); const base=(process.env.API_BASE||'').replace(/\/$/,''); fs.writeFileSync('public/config.json', JSON.stringify({apiBase: base})+'\n');"
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const base = (process.env.API_BASE || '').replace(/\/$/, '');
+          fs.writeFileSync('public/config.json', JSON.stringify({ apiBase: base }) + '\n');
+          NODE
 
       - name: Build
         working-directory: front

@@ -1,0 +1,76 @@
+name: barya-prod
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: barya-prod-sql
+    restart: always
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SQL_PASSWORD:?SQL_PASSWORD requis}
+      MSSQL_PID: ${MSSQL_PID:-Express}
+    volumes:
+      - barya_sql_data:/var/opt/mssql
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/1433'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 25s
+    networks:
+      - barya_internal
+
+  api:
+    image: ${REGISTRY:-registry.bariserv.net}/barya:${TAG:-latest}
+    container_name: barya-prod-api
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      SQL_SERVER: sqlserver
+      SQL_PORT: "1433"
+      SQL_USER: sa
+      SQL_PASSWORD: ${SQL_PASSWORD}
+      SQL_DATABASE: ${SQL_DATABASE:-barya}
+      BARYA_KEY: ${BARYA_KEY:?BARYA_KEY requis}
+      BARI_PASSWORD: ${BARI_PASSWORD:?BARI_PASSWORD requis}
+      FREYA_PASSWORD: ${FREYA_PASSWORD:?FREYA_PASSWORD requis}
+      API_ALERTS_KEY: ${API_ALERTS_KEY:-}
+      API_ALERTS_CHANNEL: ${API_ALERTS_CHANNEL:-}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy"
+
+      # HTTPS (443)
+      - "traefik.http.routers.barya-api-prod.rule=Host(`${API_HOST:?API_HOST requis}`)"
+      - "traefik.http.routers.barya-api-prod.entrypoints=websecure"
+      - "traefik.http.routers.barya-api-prod.tls=true"
+      - "traefik.http.routers.barya-api-prod.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-myresolver}"
+      - "traefik.http.services.barya-api-prod.loadbalancer.server.port=8080"
+      - "traefik.http.routers.barya-api-prod.middlewares=${TRAEFIK_RATE_LIMIT_MIDDLEWARE:-rate-limit-global@file}"
+
+      # HTTP (80) → redirection HTTPS
+      - "traefik.http.routers.barya-api-prod-http.rule=Host(`${API_HOST}`)"
+      - "traefik.http.routers.barya-api-prod-http.entrypoints=web"
+      - "traefik.http.routers.barya-api-prod-http.middlewares=${TRAEFIK_HTTPS_REDIRECT_MIDDLEWARE:-redirect-to-https@file}"
+    networks:
+      - barya_internal
+      - traefik_proxy
+
+volumes:
+  barya_sql_data:
+
+networks:
+  barya_internal:
+  traefik_proxy:
+    external: true
