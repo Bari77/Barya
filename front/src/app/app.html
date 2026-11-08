@@ -218,29 +218,90 @@
         <div class="picker-clip">
         <div class="picker">
           @if (pane() === 'gif') {
-            <p class="summary">
-              @if (selectedGif()) {
-                {{ selectedGif() }} est prêt à envoyer.
-              } @else {
-                Choisis un GIF.
-              }
-            </p>
-            <div class="gif-grid" role="group" aria-label="GIFs">
-              @for (gif of chat.gifs(); track gif.name) {
-                <button type="button" class="gif-tile" [attr.aria-pressed]="selectedGif() === gif.name" (click)="chooseGif(gif.name)">
-                  <img [src]="gif.url" [alt]="gif.name" />
-                  <span>{{ gif.name }}</span>
+            <div class="picker-head">
+              <div class="gif-toolbar">
+                <p class="summary">Touche un GIF pour l’envoyer.</p>
+                <button
+                  type="button"
+                  class="gif-filter"
+                  [attr.aria-pressed]="gifFavoritesOnly()"
+                  (click)="toggleGifFavoritesOnly()"
+                >
+                  Favoris
                 </button>
+              </div>
+              <label class="gif-search">
+                <span class="sr-only">Rechercher un GIF</span>
+                <input
+                  type="search"
+                  placeholder="Rechercher…"
+                  [value]="gifQuery()"
+                  (input)="onGifQuery($event)"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+            <div class="picker-body">
+              <div class="gif-grid" role="group" aria-label="GIFs">
+                @for (gif of filteredGifs(); track gif.name) {
+                  <div class="gif-tile" [class.is-renaming]="renamingGif() === gif.name">
+                    @if (renamingGif() === gif.name) {
+                      <img [src]="gif.url" [alt]="gif.label" />
+                      <form class="gif-rename" (submit)="saveRename($event, gif.name)">
+                        <input
+                          type="text"
+                          [value]="renameDraft()"
+                          (input)="onRenameDraft($event)"
+                          maxlength="64"
+                          aria-label="Nouveau nom"
+                          autofocus
+                        />
+                        <div class="gif-rename-actions">
+                          <button type="submit" class="linkish">OK</button>
+                          <button type="button" class="linkish" (click)="cancelRename($event)">Annuler</button>
+                        </div>
+                      </form>
+                    } @else {
+                      <button type="button" class="gif-pick" (click)="chooseGif(gif.name)">
+                        <img [src]="gif.url" [alt]="gif.label" />
+                        <span>{{ gif.label }}</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="gif-fav"
+                        [class.is-on]="gif.favorite"
+                        [attr.aria-pressed]="gif.favorite"
+                        [attr.aria-label]="gif.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'"
+                        (click)="toggleFavorite($event, gif.name)"
+                      >
+                        {{ gif.favorite ? '★' : '☆' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="gif-edit"
+                        [attr.aria-label]="'Renommer ' + gif.label"
+                        (click)="beginRename($event, gif.name, gif.label)"
+                      >
+                        ✎
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+              @if (filteredGifs().length === 0) {
+                <p class="summary">Aucun GIF pour cette recherche.</p>
               }
             </div>
           } @else {
-            <p class="summary">Ajoute un smiley au message.</p>
-            <div class="smiley-grid" role="group" aria-label="Smileys">
-              @for (smiley of smileys; track smiley) {
-                <button type="button" class="smiley-tile" (click)="chooseSmiley(smiley)">
-                  {{ smiley }}
-                </button>
-              }
+            <div class="picker-body">
+              <p class="summary">Ajoute un smiley au message.</p>
+              <div class="smiley-grid" role="group" aria-label="Smileys">
+                @for (smiley of smileys; track smiley) {
+                  <button type="button" class="smiley-tile" (click)="chooseSmiley(smiley)">
+                    {{ smiley }}
+                  </button>
+                }
+              </div>
             </div>
           }
         </div>

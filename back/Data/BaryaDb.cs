@@ -50,6 +50,18 @@ public sealed class UserSetting
     public string BubbleColor { get; set; } = "";
 }
 
+public sealed class GifLabel
+{
+    public string FileName { get; set; } = "";
+    public string Label { get; set; } = "";
+}
+
+public sealed class GifFavorite
+{
+    public int AccountId { get; set; }
+    public string FileName { get; set; } = "";
+}
+
 public sealed class BaryaDb(DbContextOptions<BaryaDb> options) : DbContext(options)
 {
     public DbSet<Account> Accounts => Set<Account>();
@@ -57,6 +69,8 @@ public sealed class BaryaDb(DbContextOptions<BaryaDb> options) : DbContext(optio
     public DbSet<AuthSession> Sessions => Set<AuthSession>();
     public DbSet<Reaction> Reactions => Set<Reaction>();
     public DbSet<UserSetting> Settings => Set<UserSetting>();
+    public DbSet<GifLabel> GifLabels => Set<GifLabel>();
+    public DbSet<GifFavorite> GifFavorites => Set<GifFavorite>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -104,6 +118,22 @@ public sealed class BaryaDb(DbContextOptions<BaryaDb> options) : DbContext(optio
             setting.Property(s => s.AccountId).ValueGeneratedNever();
             setting.Property(s => s.AlertChannel).HasMaxLength(64).IsRequired();
             setting.Property(s => s.BubbleColor).HasMaxLength(7).IsRequired();
+        });
+
+        builder.Entity<GifLabel>(label =>
+        {
+            label.ToTable("GifLabels");
+            label.HasKey(item => item.FileName);
+            label.Property(item => item.FileName).HasMaxLength(64).IsRequired();
+            label.Property(item => item.Label).HasMaxLength(64).IsRequired();
+        });
+
+        builder.Entity<GifFavorite>(favorite =>
+        {
+            favorite.ToTable("GifFavorites");
+            favorite.HasKey(item => new { item.AccountId, item.FileName });
+            favorite.Property(item => item.AccountId).ValueGeneratedNever();
+            favorite.Property(item => item.FileName).HasMaxLength(64).IsRequired();
         });
     }
 }

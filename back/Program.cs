@@ -1,6 +1,8 @@
+using System.Globalization;
 using Barya.Data;
 using Barya.Hubs;
 using Barya.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -76,11 +78,101 @@ var dummyHash = app.Services.GetRequiredService<PasswordHasher<Account>>()
     .HashPassword(new Account(), "barya-dummy-password-value");
 
 app.MapGet("/api/health", () => Results.Ok(new { ok = true }));
-app.MapGet("/api/gifs", (GifLibrary library) => Results.Ok(library.Names));
+app.MapGet("/api/gifs", async (HttpContext http, GifLibrary library, BaryaDb db) =>
+{
+    var rows = await db.GifLabels.AsNoTracking().ToListAsync();
+    var labels = rows.ToDictionary(item => item.FileName, item => item.Label, StringComparer.OrdinalIgnoreCase);
+    HashSet<string>? favorites = null;
+    if (http.User.Identity?.IsAuthenticated != true)
+        await http.AuthenticateAsync();
+    var userId = CurrentUser(http);
+    if (userId is not null)
+    {
+        var favoriteNames = await db.GifFavorites.AsNoTracking()
+            .Where(item => item.AccountId == userId.Value)
+            .Select(item => item.FileName)
+            .ToListAsync();
+        favorites = favoriteNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    return Results.Ok(library.Names
+        .Select(name =>
+        {
+            var label = labels.TryGetValue(name, out var value) && value.Length > 0
+                ? value
+                : GifLibrary.DefaultLabel(name);
+            var favorite = favorites?.Contains(name) == true;
+            return new { name, label, favorite };
+        })
+        .OrderByDescending(item => item.favorite)
+        .ThenBy(item => item.label, StringComparer.Create(new System.Globalization.CultureInfo("fr-FR"), CompareOptions.IgnoreCase))
+        .ThenBy(item => item.name, StringComparer.OrdinalIgnoreCase));
+});
 app.MapGet("/api/gifs/{name}", (string name, GifLibrary library) =>
     library.TryOpen(name, out var stream) && stream is not null
         ? Results.File(stream, "image/gif")
         : Results.NotFound());
+app.MapPut("/api/gifs/{name}", async (
+    string name,
+    GifLabelBody body,
+    GifLibrary library,
+    BaryaDb db,
+    IHubContext<ChatHub> hub) =>
+{
+    var stored = library.Canonical(name);
+    if (stored is null)
+        return Results.NotFound();
+    var label = (body.Label ?? "").Trim();
+    if (!GifLibrary.IsLabel(label))
+        return Results.Json(new { error = "Ce nom de GIF n’est pas valide." }, statusCode: 400);
+
+    var row = await db.GifLabels.FirstOrDefaultAsync(item => item.FileName == stored);
+    if (row is null)
+        db.GifLabels.Add(new GifLabel { FileName = stored, Label = label });
+    else
+        row.Label = label;
+    await db.SaveChangesAsync();
+
+    var rows = await db.GifLabels.AsNoTracking().ToListAsync();
+    var labels = rows.ToDictionary(item => item.FileName, item => item.Label, StringComparer.OrdinalIgnoreCase);
+    var catalog = library.Names.Select(item => new
+    {
+        name = item,
+        label = labels.TryGetValue(item, out var value) && value.Length > 0
+            ? value
+            : GifLibrary.DefaultLabel(item),
+    }).ToArray();
+    await hub.Clients.All.SendAsync("gifs", catalog);
+    return Results.Ok(new { name = stored, label });
+}).RequireAuthorization();
+app.MapPost("/api/gifs/{name}/favorite", async (
+    string name,
+    HttpContext http,
+    GifLibrary library,
+    BaryaDb db) =>
+{
+    var userId = CurrentUser(http);
+    if (userId is null)
+        return Results.Unauthorized();
+    var stored = library.Canonical(name);
+    if (stored is null)
+        return Results.NotFound();
+
+    var row = await db.GifFavorites.FirstOrDefaultAsync(item =>
+        item.AccountId == userId.Value && item.FileName == stored);
+    var favorite = false;
+    if (row is null)
+    {
+        db.GifFavorites.Add(new GifFavorite { AccountId = userId.Value, FileName = stored });
+        favorite = true;
+    }
+    else
+    {
+        db.GifFavorites.Remove(row);
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { name = stored, favorite });
+}).RequireAuthorization();
 app.MapPost("/api/login", async (
     LoginBody body,
     HttpContext http,
@@ -234,6 +326,17 @@ static async Task PrepareDatabase(WebApplication app)
                 ALTER TABLE dbo.Settings ADD BubbleColor nvarchar(7) NOT NULL CONSTRAINT DF_Settings_BubbleColor DEFAULT N'';
                 IF COL_LENGTH(N'dbo.Messages', N'EditedAt') IS NULL
                 ALTER TABLE dbo.Messages ADD EditedAt datetime2 NULL;
+                IF OBJECT_ID(N'dbo.GifLabels', N'U') IS NULL
+                CREATE TABLE dbo.GifLabels (
+                    FileName nvarchar(64) NOT NULL PRIMARY KEY,
+                    Label nvarchar(64) NOT NULL
+                );
+                IF OBJECT_ID(N'dbo.GifFavorites', N'U') IS NULL
+                CREATE TABLE dbo.GifFavorites (
+                    AccountId int NOT NULL,
+                    FileName nvarchar(64) NOT NULL,
+                    CONSTRAINT PK_GifFavorites PRIMARY KEY (AccountId, FileName)
+                );
                 """);
             await Seed.Run(db, hasher, users, app.Configuration, app.Logger);
             return;
@@ -271,3 +374,5 @@ sealed record LoginBody(string? Login, string? Password);
 sealed record RefreshBody(string? Refresh, string? Renew);
 
 sealed record SettingsBody(string? AlertChannel, string? BubbleColor);
+
+sealed record GifLabelBody(string? Label);

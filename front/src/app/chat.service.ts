@@ -36,7 +36,9 @@ export interface ChatMessage {
 
 export interface GifItem {
   name: string;
+  label: string;
   url: string;
+  favorite: boolean;
 }
 
 interface Wire {
@@ -110,16 +112,11 @@ export class ChatService {
       this.apiBase = '';
     }
 
-    try {
-      const names = (await fetch(`${this.apiBase}/api/gifs`).then((response) => response.json())) as unknown;
-      const list = Array.isArray(names) ? names.filter((name): name is string => typeof name === 'string') : [];
-      this.gifs.set(list.map((name) => ({ name, url: this.gifUrl(name) })));
-    } catch {
-      this.gifs.set([]);
-    }
+    await this.refreshGifs();
 
     const restored = await this.refreshOnce();
     if (restored === 'ok') {
+      await this.refreshGifs();
       try {
         await this.connect();
       } catch {
@@ -154,6 +151,7 @@ export class ChatService {
     }
 
     this.applySession(body);
+    await this.refreshGifs();
     try {
       await this.connect();
     } catch {
@@ -168,6 +166,63 @@ export class ChatService {
 
   gifUrl(name: string): string {
     return `${this.apiBase}/api/gifs/${encodeURIComponent(name)}`;
+  }
+
+  async refreshGifs(): Promise<void> {
+    try {
+      const response = this.session()?.token
+        ? await this.authed('/api/gifs')
+        : await fetch(`${this.apiBase}/api/gifs`);
+      if (!response.ok) throw new Error('catalog');
+      const payload = (await response.json()) as unknown;
+      this.gifs.set(sortGifs(parseGifs(payload, (name) => this.gifUrl(name))));
+    } catch {
+      this.gifs.set([]);
+    }
+  }
+
+  async renameGif(name: string, label: string): Promise<void> {
+    const response = await this.authed(`/api/gifs/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    });
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as { name?: string; label?: string } | null;
+      const nextName = body?.name ?? name;
+      const nextLabel = (body?.label ?? label).trim();
+      this.gifs.update((list) =>
+        sortGifs(
+          list.map((item) =>
+            item.name === name || item.name === nextName
+              ? { ...item, name: nextName, label: nextLabel, url: this.gifUrl(nextName) }
+              : item,
+          ),
+        ),
+      );
+      return;
+    }
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? 'Le nom du GIF n’a pas été enregistré.');
+  }
+
+  async toggleGifFavorite(name: string): Promise<void> {
+    const response = await this.authed(`/api/gifs/${encodeURIComponent(name)}/favorite`, {
+      method: 'POST',
+    });
+    if (response.ok) {
+      const body = (await response.json().catch(() => null)) as { name?: string; favorite?: boolean } | null;
+      const nextName = body?.name ?? name;
+      const favorite = body?.favorite === true;
+      this.gifs.update((list) =>
+        sortGifs(
+          list.map((item) => (item.name === name || item.name === nextName ? { ...item, favorite } : item)),
+        ),
+      );
+      return;
+    }
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? 'Le favori n’a pas été enregistré.');
   }
 
   async loadSettings(): Promise<{ alertChannel: string; bubbleColor: string }> {
@@ -413,6 +468,17 @@ export class ChatService {
     connection.on('presence', (payload: { from?: string; state?: string }) => {
       if (!payload.from) return;
       this.remember(payload.from, asPresence(payload.state));
+    });
+    connection.on('gifs', (payload: unknown) => {
+      const favorites = new Set(this.gifs().filter((item) => item.favorite).map((item) => item.name.toLowerCase()));
+      this.gifs.set(
+        sortGifs(
+          parseGifs(payload, (name) => this.gifUrl(name)).map((item) => ({
+            ...item,
+            favorite: item.favorite || favorites.has(item.name.toLowerCase()),
+          })),
+        ),
+      );
     });
     connection.onreconnected(() => {
       this.ready.set(true);
@@ -714,6 +780,7 @@ export class ChatService {
     for (const key of ['barya.token', 'barya.me', 'barya.peer', 'barya.refresh', 'barya.renew']) {
       clearStore(key);
     }
+    this.gifs.update((list) => list.map((item) => ({ ...item, favorite: false })));
     const connection = this.connection;
     this.connection = null;
     void connection?.stop().finally(() => {
@@ -795,6 +862,41 @@ function asBubble(value: unknown): string {
   if (typeof value !== 'string') return '';
   const hex = value.trim();
   return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : '';
+}
+
+function parseGifs(value: unknown, urlOf: (name: string) => string): GifItem[] {
+  if (!Array.isArray(value)) return [];
+  const list: GifItem[] = [];
+  for (const item of value) {
+    if (typeof item === 'string') {
+      list.push({
+        name: item,
+        label: item.replace(/\.gif$/i, '').replaceAll('_', ' '),
+        url: urlOf(item),
+        favorite: false,
+      });
+      continue;
+    }
+    if (typeof item !== 'object' || item === null) continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record['name'] !== 'string') continue;
+    const name = record['name'];
+    const label =
+      typeof record['label'] === 'string' && record['label'].trim()
+        ? record['label'].trim()
+        : name.replace(/\.gif$/i, '').replaceAll('_', ' ');
+    list.push({ name, label, url: urlOf(name), favorite: record['favorite'] === true });
+  }
+  return list;
+}
+
+function sortGifs(list: GifItem[]): GifItem[] {
+  return [...list].sort((left, right) => {
+    if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
+    const byLabel = left.label.localeCompare(right.label, 'fr', { sensitivity: 'base' });
+    if (byLabel !== 0) return byLabel;
+    return left.name.localeCompare(right.name, 'fr', { sensitivity: 'base' });
+  });
 }
 
 function defaultBubble(name: string): string {

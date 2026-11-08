@@ -14,7 +14,10 @@ export class App {
   protected readonly showGifs = signal(false);
   protected readonly showSmileys = signal(false);
   protected readonly pane = signal<'gif' | 'smiley'>('gif');
-  protected readonly selectedGif = signal('');
+  protected readonly gifQuery = signal('');
+  protected readonly gifFavoritesOnly = signal(false);
+  protected readonly renamingGif = signal<string | null>(null);
+  protected readonly renameDraft = signal('');
   protected readonly showSettings = signal(false);
   protected readonly alertChannel = signal('');
   protected readonly bubbleColor = signal('#3B82F6');
@@ -32,6 +35,22 @@ export class App {
   } | null>(null);
   protected readonly smileys = smileys;
   protected readonly draftGlyphs = computed(() => this.glyphs(this.draft()));
+  protected readonly filteredGifs = computed(() => {
+    const query = this.gifQuery().trim().toLowerCase();
+    let list = this.chat.gifs();
+    if (this.gifFavoritesOnly()) list = list.filter((gif) => gif.favorite);
+    if (query) {
+      list = list.filter(
+        (gif) =>
+          gif.label.toLowerCase().includes(query) ||
+          gif.name.toLowerCase().includes(query),
+      );
+    }
+    return [...list].sort((left, right) => {
+      if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
+      return left.label.localeCompare(right.label, 'fr', { sensitivity: 'base' });
+    });
+  });
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
   private readonly composeBox = viewChild<ElementRef<HTMLElement>>('compose');
   private allSelected = false;
@@ -115,7 +134,10 @@ export class App {
     this.showGifs.set(false);
     this.showSmileys.set(false);
     this.showSettings.set(false);
-    this.selectedGif.set('');
+    this.gifQuery.set('');
+    this.gifFavoritesOnly.set(false);
+    this.renamingGif.set(null);
+    this.renameDraft.set('');
     this.settingsNote.set('');
     this.reactionMenu.set(null);
     this.editingId.set(null);
@@ -220,9 +242,77 @@ export class App {
     }
   }
 
-  protected chooseGif(name: string): void {
-    this.selectedGif.set(this.selectedGif() === name ? '' : name);
+  protected async chooseGif(name: string): Promise<void> {
+    if (this.renamingGif()) return;
     this.composeError.set('');
+    this.showGifs.set(false);
+    this.showSmileys.set(false);
+    this.gifQuery.set('');
+    this.gifFavoritesOnly.set(false);
+    try {
+      await this.chat.send('gif', name);
+    } catch (error) {
+      this.showGifs.set(true);
+      this.pane.set('gif');
+      this.composeError.set(error instanceof Error ? error.message : 'Le GIF n’est pas parti.');
+    }
+  }
+
+  protected onGifQuery(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.gifQuery.set(target.value);
+  }
+
+  protected toggleGifFavoritesOnly(): void {
+    this.gifFavoritesOnly.update((value) => !value);
+  }
+
+  protected async toggleFavorite(event: Event, name: string): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    this.composeError.set('');
+    try {
+      await this.chat.toggleGifFavorite(name);
+    } catch (error) {
+      this.composeError.set(error instanceof Error ? error.message : 'Le favori n’a pas été enregistré.');
+    }
+  }
+
+  protected beginRename(event: Event, name: string, label: string): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.renamingGif.set(name);
+    this.renameDraft.set(label);
+  }
+
+  protected onRenameDraft(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.renameDraft.set(target.value);
+  }
+
+  protected cancelRename(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.renamingGif.set(null);
+    this.renameDraft.set('');
+  }
+
+  protected async saveRename(event: Event, name: string): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    const label = this.renameDraft().trim();
+    if (!label) {
+      this.composeError.set('Donne un nom au GIF.');
+      return;
+    }
+    this.composeError.set('');
+    try {
+      await this.chat.renameGif(name, label);
+      this.renamingGif.set(null);
+      this.renameDraft.set('');
+    } catch (error) {
+      this.composeError.set(error instanceof Error ? error.message : 'Le nom du GIF n’a pas été enregistré.');
+    }
   }
 
   protected chooseSmiley(emoji: string): void {
@@ -312,7 +402,16 @@ export class App {
     this.pane.set('gif');
     this.showSmileys.set(false);
     if (this.editingId() !== null) this.cancelEdit();
-    this.showGifs.update((value) => !value);
+    this.showGifs.update((value) => {
+      const next = !value;
+      if (!next) {
+        this.gifQuery.set('');
+        this.gifFavoritesOnly.set(false);
+        this.renamingGif.set(null);
+        this.renameDraft.set('');
+      }
+      return next;
+    });
   }
 
   protected toggleSmileys(): void {
@@ -398,7 +497,10 @@ export class App {
     this.reactionMenu.set(null);
     this.showGifs.set(false);
     this.showSmileys.set(false);
-    this.selectedGif.set('');
+    this.gifQuery.set('');
+    this.gifFavoritesOnly.set(false);
+    this.renamingGif.set(null);
+    this.renameDraft.set('');
     this.editingId.set(menu.id);
     this.draft.set(menu.body);
     this.caret.set(this.glyphs(menu.body).length);
@@ -416,8 +518,11 @@ export class App {
   protected async send(): Promise<void> {
     this.showGifs.set(false);
     this.showSmileys.set(false);
+    this.gifQuery.set('');
+    this.gifFavoritesOnly.set(false);
+    this.renamingGif.set(null);
+    this.renameDraft.set('');
     const text = this.draft().trim();
-    const gif = this.selectedGif();
     const editing = this.editingId();
     if (editing !== null) {
       if (!text) {
@@ -431,25 +536,22 @@ export class App {
         this.allSelected = false;
         this.draft.set('');
         this.caret.set(0);
-        this.selectedGif.set('');
         this.chat.stopTyping();
       } catch (error) {
         this.composeError.set(error instanceof Error ? error.message : 'La modification n’est pas partie.');
       }
       return;
     }
-    if (!text && !gif) {
+    if (!text) {
       this.composeError.set('Écris un message avant de l’envoyer.');
       return;
     }
     this.composeError.set('');
     try {
-      if (text) await this.chat.send('text', text);
-      if (gif) await this.chat.send('gif', gif);
+      await this.chat.send('text', text);
       this.allSelected = false;
       this.draft.set('');
       this.caret.set(0);
-      this.selectedGif.set('');
       this.chat.stopTyping();
     } catch (error) {
       this.composeError.set(error instanceof Error ? error.message : 'Le message n’est pas parti.');

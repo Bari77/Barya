@@ -40,6 +40,14 @@ public sealed class GifLibrary
         return true;
     }
 
+    public static string DefaultLabel(string name)
+    {
+        var stem = name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+            ? name[..^4]
+            : name;
+        return stem.Replace('_', ' ').Trim();
+    }
+
     public static bool IsName(string name)
     {
         if (name.Length is < 5 or > 64 || !name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
@@ -47,6 +55,19 @@ public sealed class GifLibrary
         foreach (var letter in name)
         {
             if (!(char.IsAsciiLetterOrDigit(letter) || letter is '.' or '_' or '-'))
+                return false;
+        }
+
+        return true;
+    }
+
+    public static bool IsLabel(string label)
+    {
+        if (label.Length is < 1 or > 64)
+            return false;
+        foreach (var letter in label)
+        {
+            if (char.IsControl(letter) || letter is '/' or '\\' or ':' or '"' or '<' or '>')
                 return false;
         }
 
