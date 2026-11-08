@@ -494,6 +494,17 @@ export class App {
     return name.slice(0, 1).toUpperCase();
   }
 
+  protected peerMascot(peer: string): 'bari' | 'freya' | null {
+    const key = peer.trim().toLowerCase();
+    if (key.includes('bari')) return 'bari';
+    if (key.includes('freya')) return 'freya';
+    return null;
+  }
+
+  protected mascotLayer(who: 'bari' | 'freya', layer: string): string {
+    return `avatars/${who}_${layer}.png`;
+  }
+
   protected presenceLabel(state: string): string {
     if (state === 'online') return 'En ligne';
     if (state === 'away') return 'Absent';
