@@ -58,30 +58,41 @@ app-root { display: block; height: 100%; }
   border-bottom: 1px solid light-dark(#e4dcd0, #3a342c);
   flex-shrink: 0;
 }
+.chat-body > .top {
+  align-items: flex-end;
+  padding: 8px 16px 6px;
+  min-height: 72px;
+}
 
-.who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.idblock { display: flex; flex-direction: column; min-width: 0; }
-.mono, .face {
-  width: 36px; height: 36px; border-radius: 50%;
-  flex-shrink: 0;
-  background: light-dark(#efe6da, #2a2622);
+.who { display: flex; align-items: flex-end; gap: 10px; min-width: 0; }
+.idblock {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-bottom: 8px;
 }
 .mono {
+  width: 36px; height: 36px; border-radius: 50%;
+  flex-shrink: 0;
   display: grid; place-items: center;
+  margin-bottom: 8px;
+  background: light-dark(#efe6da, #2a2622);
   color: light-dark(#6e2f28, #e7b2a4);
   font-family: Palatino, "Palatino Linotype", Georgia, serif;
 }
 .face {
   position: relative;
-  overflow: hidden;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  overflow: visible;
+  background: transparent;
 }
 .face .mascotte.is-face {
-  position: absolute;
-  left: 50%;
-  top: 62%;
-  width: 52px;
+  position: relative;
+  width: 64px;
   aspect-ratio: 1;
-  transform: translate(-50%, -50%);
+  transform: none;
 }
 .name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .name { font-weight: 500; }
@@ -214,8 +225,8 @@ app-root { display: block; height: 100%; }
   pointer-events: none;
   user-select: none;
 }
-.mascotte .body { z-index: 1; }
-.mascotte .ear { z-index: 2; }
+.mascotte .ear { z-index: 1; }
+.mascotte .body { z-index: 2; }
 .mascotte .blink {
   z-index: 3;
   opacity: 0;
