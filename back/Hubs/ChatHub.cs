@@ -18,7 +18,8 @@ public sealed record WireMessage(
     string Created,
     string State,
     string From,
-    IReadOnlyList<WireReaction> Reactions);
+    IReadOnlyList<WireReaction> Reactions,
+    bool Edited);
 
 public sealed record ReactionNotice(long MessageId, IReadOnlyList<WireReaction> Reactions);
 
@@ -148,10 +149,66 @@ public sealed class ChatHub(
                 Iso(message.CreatedAt),
                 "unread",
                 users.Get(me).Name,
-                []));
+                [],
+                false));
         }
 
         return new Ack(clientId, message.Id, Iso(message.CreatedAt), delivered ? "received" : "sent");
+    }
+
+    public async Task EditMessage(long messageId, string body)
+    {
+        body = (body ?? "").Trim();
+        if (body.Length == 0)
+            throw new HubException("Écris un message avant de l’envoyer.");
+        if (body.Length > 500)
+            throw new HubException("Le message est trop long.");
+        if (body.Any(letter => letter < ' '))
+            throw new HubException("Le message contient un caractère refusé.");
+
+        var me = Me();
+        var message = await db.Messages.FirstOrDefaultAsync(item => item.Id == messageId && item.SenderId == me);
+        if (message is null)
+            throw new HubException("Message introuvable.");
+        if (message.Kind != "text")
+            throw new HubException("Ce message ne peut pas être modifié.");
+
+        var (nonce, sealedBody) = cipher.Seal(body);
+        message.Nonce = nonce;
+        message.Cipher = sealedBody;
+        message.EditedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+        log.LogInformation("Message {Id} modifié par {Sender}", message.Id, me);
+
+        var peer = users.Peer(me);
+        var state = message.ReadAt is not null ? "read" : message.ReceivedAt is not null ? "received" : "sent";
+        var reactions = await LoadReactions([message.Id], me);
+        reactions.TryGetValue(message.Id, out var marks);
+        await Clients.Caller.SendAsync("edited", new WireMessage(
+            message.Id,
+            true,
+            message.Kind,
+            body,
+            Iso(message.CreatedAt),
+            state,
+            users.Get(me).Name,
+            marks ?? [],
+            true));
+        if (peer.Id != 0)
+        {
+            var peerMarks = await ReactionsFor(message.Id, peer.Id);
+            var peerState = message.ReadAt is not null ? "read" : "unread";
+            await Clients.User(IdOf(peer.Id)).SendAsync("edited", new WireMessage(
+                message.Id,
+                false,
+                message.Kind,
+                body,
+                Iso(message.CreatedAt),
+                peerState,
+                users.Get(me).Name,
+                peerMarks,
+                true));
+        }
     }
 
     public Task<History> LoadOlder(long beforeId) => Page(Me(), beforeId);
@@ -288,7 +345,8 @@ public sealed class ChatHub(
                 Iso(message.CreatedAt),
                 state,
                 author,
-                marks ?? []));
+                marks ?? [],
+                message.EditedAt is not null));
         }
 
         return new History(list, older);

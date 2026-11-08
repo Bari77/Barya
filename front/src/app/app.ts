@@ -21,7 +21,14 @@ export class App {
   protected readonly composeError = signal('');
   protected readonly caret = signal(0);
   protected readonly pendingNew = signal(0);
-  protected readonly reactionMenu = signal<{ id: number; x: number; y: number } | null>(null);
+  protected readonly editingId = signal<number | null>(null);
+  protected readonly reactionMenu = signal<{
+    id: number;
+    x: number;
+    y: number;
+    canEdit: boolean;
+    body: string;
+  } | null>(null);
   protected readonly smileys = smileys;
   protected readonly draftGlyphs = computed(() => this.glyphs(this.draft()));
   private readonly thread = viewChild<ElementRef<HTMLElement>>('thread');
@@ -110,6 +117,7 @@ export class App {
     this.selectedGif.set('');
     this.settingsNote.set('');
     this.reactionMenu.set(null);
+    this.editingId.set(null);
     this.composeError.set('');
     this.pendingNew.set(0);
     this.chat.logout();
@@ -163,6 +171,11 @@ export class App {
   protected onChatKey(event: KeyboardEvent): void {
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    if (event.key === 'Escape' && this.editingId() !== null) {
+      event.preventDefault();
+      this.cancelEdit();
+      return;
+    }
     if (event.key === 'Enter' && !this.showSettings()) {
       event.preventDefault();
       void this.send();
@@ -260,6 +273,7 @@ export class App {
     this.showGifs.set(false);
     this.showSmileys.set(false);
     this.reactionMenu.set(null);
+    this.cancelEdit();
     this.showSettings.set(true);
     this.settingsNote.set('');
     try {
@@ -289,6 +303,7 @@ export class App {
   protected toggleGifs(): void {
     this.pane.set('gif');
     this.showSmileys.set(false);
+    if (this.editingId() !== null) this.cancelEdit();
     this.showGifs.update((value) => !value);
   }
 
@@ -337,15 +352,14 @@ export class App {
   protected openReaction(event: MouseEvent, message: ChatMessage): void {
     if (message.id === null) return;
     event.preventDefault();
-    this.placeReactionMenu(event.clientX, event.clientY, message.id);
+    this.placeMessageMenu(event.clientX, event.clientY, message);
   }
 
   protected holdReaction(event: PointerEvent, message: ChatMessage): void {
     if (event.pointerType === 'mouse' || message.id === null) return;
     const x = event.clientX;
     const y = event.clientY;
-    const id = message.id;
-    this.holdTimer = setTimeout(() => this.placeReactionMenu(x, y, id), 500);
+    this.holdTimer = setTimeout(() => this.placeMessageMenu(x, y, message), 500);
   }
 
   protected moveReaction(event: PointerEvent): void {
@@ -372,11 +386,50 @@ export class App {
     }
   }
 
+  protected startEdit(menu: { id: number; body: string }): void {
+    this.reactionMenu.set(null);
+    this.showGifs.set(false);
+    this.showSmileys.set(false);
+    this.selectedGif.set('');
+    this.editingId.set(menu.id);
+    this.draft.set(menu.body);
+    this.caret.set(this.glyphs(menu.body).length);
+    this.composeError.set('');
+    this.composeBox()?.nativeElement.focus({ preventScroll: true });
+  }
+
+  protected cancelEdit(): void {
+    this.editingId.set(null);
+    this.draft.set('');
+    this.caret.set(0);
+    this.composeError.set('');
+  }
+
   protected async send(): Promise<void> {
     this.showGifs.set(false);
     this.showSmileys.set(false);
     const text = this.draft().trim();
     const gif = this.selectedGif();
+    const editing = this.editingId();
+    if (editing !== null) {
+      if (!text) {
+        this.composeError.set('Écris un message avant de l’envoyer.');
+        return;
+      }
+      this.composeError.set('');
+      try {
+        await this.chat.edit(editing, text);
+        this.editingId.set(null);
+        this.allSelected = false;
+        this.draft.set('');
+        this.caret.set(0);
+        this.selectedGif.set('');
+        this.chat.stopTyping();
+      } catch (error) {
+        this.composeError.set(error instanceof Error ? error.message : 'La modification n’est pas partie.');
+      }
+      return;
+    }
     if (!text && !gif) {
       this.composeError.set('Écris un message avant de l’envoyer.');
       return;
@@ -410,11 +463,15 @@ export class App {
     }
   }
 
-  private placeReactionMenu(x: number, y: number, id: number): void {
+  private placeMessageMenu(x: number, y: number, message: ChatMessage): void {
+    if (message.id === null) return;
     const width = 220;
-    const height = 200;
+    const canEdit = message.mine && message.kind === 'text';
+    const height = canEdit ? 248 : 200;
     this.reactionMenu.set({
-      id,
+      id: message.id,
+      body: message.body,
+      canEdit,
       x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
       y: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
     });

@@ -146,6 +146,9 @@
                 <svg viewBox="0 0 12 10"><path d="M1 5.5 4 8.5 11 1.5" /></svg>
               </span>
             }
+            @if (message.edited) {
+              <span>modifié</span>
+            }
             <span>{{ receipt(message.state) }}</span>
             <span class="when">{{ clock(message.created) }}</span>
           </div>
@@ -226,11 +229,17 @@
           }
         </div>
         @if (!draft()) {
-          <p class="hint">Écrire un message</p>
+          <p class="hint">{{ editingId() ? 'Modifier le message' : 'Écrire un message' }}</p>
         }
       </div>
     </div>
     </div>
+    @if (editingId()) {
+      <p class="note">
+        Modification en cours.
+        <button type="button" class="linkish" (click)="cancelEdit()">Annuler</button>
+      </p>
+    }
     @if (composeError()) {
       <p class="note err">{{ composeError() }}</p>
     }
@@ -278,14 +287,22 @@
           </svg>
         </button>
         <button type="button" class="key fn space" (click)="press(' ')">Espace</button>
-        <button type="button" class="key fn send-key" (click)="send()">Envoyer</button>
+        <button type="button" class="key fn send-key" (click)="send()">
+          {{ editingId() ? 'Enregistrer' : 'Envoyer' }}
+        </button>
       </div>
     </div>
     @if (reactionMenu(); as menu) {
-      <div class="smiley-menu" role="menu" aria-label="Réaction" [style.left.px]="menu.x" [style.top.px]="menu.y">
-        @for (smiley of smileys; track smiley) {
-          <button type="button" class="smiley-key" (click)="toggleReactionId(menu.id, smiley)">{{ smiley }}</button>
+      <div class="smiley-menu" role="menu" aria-label="Message" [style.left.px]="menu.x" [style.top.px]="menu.y">
+        @if (menu.canEdit) {
+          <button type="button" class="menu-action" (click)="startEdit(menu)">Modifier</button>
         }
+        <p class="menu-label">Réagir</p>
+        <div class="menu-smileys">
+          @for (smiley of smileys; track smiley) {
+            <button type="button" class="smiley-key" (click)="toggleReactionId(menu.id, smiley)">{{ smiley }}</button>
+          }
+        </div>
       </div>
     }
     </div>

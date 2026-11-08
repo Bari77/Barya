@@ -21,6 +21,7 @@ public sealed class ChatMessage
     public DateTime? ReceivedAt { get; set; }
     public DateTime? ReadAt { get; set; }
     public DateTime? AlertedAt { get; set; }
+    public DateTime? EditedAt { get; set; }
 }
 
 public sealed class AuthSession

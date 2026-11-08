@@ -205,6 +205,8 @@ static async Task PrepareDatabase(WebApplication app)
                     AccountId int NOT NULL PRIMARY KEY,
                     AlertChannel nvarchar(64) NOT NULL
                 );
+                IF COL_LENGTH(N'dbo.Messages', N'EditedAt') IS NULL
+                ALTER TABLE dbo.Messages ADD EditedAt datetime2 NULL;
                 """);
             await Seed.Run(db, hasher, users, app.Configuration, app.Logger);
             return;

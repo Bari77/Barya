@@ -12,7 +12,7 @@ public static class SessionCookies
 {
     public const string RefreshName = "barya.refresh";
     public const string RenewName = "barya.renew";
-    public static readonly TimeSpan AccessLifetime = TimeSpan.FromMinutes(15);
+    public static readonly TimeSpan AccessLifetime = TimeSpan.FromHours(1);
     public static readonly TimeSpan RefreshLifetime = TimeSpan.FromHours(2);
     public static readonly TimeSpan RenewLifetime = TimeSpan.FromDays(30);
 
@@ -133,7 +133,7 @@ public static class SessionCookies
     private static void Append(HttpContext http, string name, string value, TimeSpan life)
     {
         var secure = Secure(http.Request);
-        var options = new CookieOptions
+        http.Response.Cookies.Append(name, value, new CookieOptions
         {
             HttpOnly = true,
             Secure = secure,
@@ -141,24 +141,18 @@ public static class SessionCookies
             MaxAge = life,
             Path = "/",
             IsEssential = true,
-        };
-        if (secure)
-            options.Extensions.Add("Partitioned");
-        http.Response.Cookies.Append(name, value, options);
+        });
     }
 
     private static void Delete(HttpContext http, string name)
     {
         var secure = Secure(http.Request);
-        var options = new CookieOptions
+        http.Response.Cookies.Delete(name, new CookieOptions
         {
             Path = "/",
             Secure = secure,
             SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
-        };
-        if (secure)
-            options.Extensions.Add("Partitioned");
-        http.Response.Cookies.Delete(name, options);
+        });
     }
 
     private static bool Secure(HttpRequest request)

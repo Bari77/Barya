@@ -391,13 +391,34 @@ button:focus-visible, input:focus-visible, .compose:focus-visible {
 .smiley-menu {
   position: fixed;
   z-index: 5;
-  display: grid;
-  grid-template-columns: repeat(5, 2.4rem);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 220px;
   padding: 8px;
   border-radius: 12px;
   border: 1px solid light-dark(#e4dcd0, #3a342c);
   background: light-dark(#fffdf8, #1c1a17);
+}
+.menu-action {
+  width: 100%;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid light-dark(#e4dcd0, #3a342c);
+  background: light-dark(#fffdf8, #241f1c);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.menu-label {
+  margin: 0;
+  font-size: 13px;
+  color: light-dark(#4e4942, #d5c9bb);
+}
+.menu-smileys {
+  display: grid;
+  grid-template-columns: repeat(5, 2.4rem);
+  gap: 4px;
 }
 .smiley-key {
   font-size: 22px;
@@ -405,6 +426,17 @@ button:focus-visible, input:focus-visible, .compose:focus-visible {
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
+}
+.linkish {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: light-dark(#6e2f28, #e7b2a4);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .board {
