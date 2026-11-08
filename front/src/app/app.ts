@@ -510,7 +510,7 @@ export class App {
   }
 
   protected mascotLayer(who: 'bari' | 'freya', layer: string): string {
-    return `avatars/${who}_${layer}.png`;
+    return `avatars/${who}_${layer}.png?v=20261108c`;
   }
 
   protected presenceLabel(state: string): string {

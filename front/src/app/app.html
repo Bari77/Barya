@@ -56,9 +56,9 @@
         @if (peerMascot(session.peer); as mascot) {
           <span class="face" aria-hidden="true">
             <span class="mascotte is-face" [attr.data-who]="mascot">
+              <img class="body" [src]="mascotLayer(mascot, 'corps_sans_oreilles')" alt="" decoding="async" />
               <img class="ear ear-left" [src]="mascotLayer(mascot, 'oreille_gauche')" alt="" decoding="async" />
               <img class="ear ear-right" [src]="mascotLayer(mascot, 'oreille_droite')" alt="" decoding="async" />
-              <img class="body" [src]="mascotLayer(mascot, 'corps_sans_oreilles')" alt="" decoding="async" />
             </span>
           </span>
         } @else {
@@ -197,9 +197,9 @@
         aria-hidden="true"
       >
         <div class="mascotte" [attr.data-who]="mascot">
+          <img class="body" [src]="mascotLayer(mascot, 'corps_sans_oreilles')" alt="" decoding="async" />
           <img class="ear ear-left" [src]="mascotLayer(mascot, 'oreille_gauche')" alt="" decoding="async" />
           <img class="ear ear-right" [src]="mascotLayer(mascot, 'oreille_droite')" alt="" decoding="async" />
-          <img class="body" [src]="mascotLayer(mascot, 'corps_sans_oreilles')" alt="" decoding="async" />
           <img class="blink" [src]="mascotLayer(mascot, 'yeux_fermes_overlay')" alt="" decoding="async" />
         </div>
       </div>
