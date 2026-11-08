@@ -17,6 +17,7 @@ export class App {
   protected readonly selectedGif = signal('');
   protected readonly showSettings = signal(false);
   protected readonly alertChannel = signal('');
+  protected readonly bubbleColor = signal('#3B82F6');
   protected readonly settingsNote = signal('');
   protected readonly composeError = signal('');
   protected readonly caret = signal(0);
@@ -277,7 +278,9 @@ export class App {
     this.showSettings.set(true);
     this.settingsNote.set('');
     try {
-      this.alertChannel.set(await this.chat.loadSettings());
+      const settings = await this.chat.loadSettings();
+      this.alertChannel.set(settings.alertChannel);
+      this.bubbleColor.set(settings.bubbleColor);
     } catch (error) {
       this.settingsNote.set(error instanceof Error ? error.message : 'Les réglages ne répondent pas.');
     }
@@ -288,15 +291,20 @@ export class App {
     if (target instanceof HTMLInputElement) this.alertChannel.set(target.value);
   }
 
+  protected onBubble(event: Event): void {
+    const target = event.target;
+    if (target instanceof HTMLInputElement) this.bubbleColor.set(target.value.toUpperCase());
+  }
+
   protected async saveChannel(event: Event): Promise<void> {
     event.preventDefault();
     this.settingsNote.set('');
     try {
-      await this.chat.saveSettings(this.alertChannel().trim());
+      await this.chat.saveSettings(this.alertChannel().trim(), this.bubbleColor());
       this.alertChannel.set(this.alertChannel().trim());
-      this.settingsNote.set('Canal enregistré.');
+      this.settingsNote.set('Réglages enregistrés.');
     } catch (error) {
-      this.settingsNote.set(error instanceof Error ? error.message : 'Le canal n’a pas été enregistré.');
+      this.settingsNote.set(error instanceof Error ? error.message : 'Les réglages n’ont pas été enregistrés.');
     }
   }
 

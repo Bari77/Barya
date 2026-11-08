@@ -25,7 +25,9 @@ public sealed record ReactionNotice(long MessageId, IReadOnlyList<WireReaction> 
 
 public sealed record ReceiptBatch(long[] Ids, string State);
 
-public sealed record Hello(string Me, string Peer, string PeerPresence);
+public sealed record Hello(string Me, string Peer, string PeerPresence, string MyBubble, string PeerBubble);
+
+public sealed record BubbleNotice(string From, string Color);
 
 public sealed record TypingNotice(string From, bool Active);
 
@@ -66,9 +68,19 @@ public sealed class ChatHub(
             }
         }
 
-        await Clients.Caller.SendAsync("hello", new Hello(self.Name, peer.Name, presence.Visible(peer.Id)));
+        var myBubble = await BubbleOf(me, self.Login);
+        var peerBubble = peer.Id == 0 ? BubbleColors.DefaultFor(peer.Name) : await BubbleOf(peer.Id, peer.Login);
+        await Clients.Caller.SendAsync(
+            "hello",
+            new Hello(self.Name, peer.Name, presence.Visible(peer.Id), myBubble, peerBubble));
         await Clients.Caller.SendAsync("history", await Page(me, null));
         await base.OnConnectedAsync();
+    }
+
+    private async Task<string> BubbleOf(int accountId, string login)
+    {
+        var setting = await db.Settings.AsNoTracking().FirstOrDefaultAsync(item => item.AccountId == accountId);
+        return BubbleColors.Normalize(setting?.BubbleColor, login);
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)

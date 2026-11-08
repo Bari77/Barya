@@ -26,10 +26,16 @@ public static class Seed
 
         foreach (var person in people)
         {
+            var bubble = BubbleColors.DefaultFor(person.Login);
             var setting = await db.Settings.FirstOrDefaultAsync(item => item.AccountId == person.Id);
             if (setting is null)
             {
-                db.Settings.Add(new UserSetting { AccountId = person.Id, AlertChannel = person.Login });
+                db.Settings.Add(new UserSetting
+                {
+                    AccountId = person.Id,
+                    AlertChannel = person.Login,
+                    BubbleColor = bubble,
+                });
                 log.LogInformation("Canal d'alerte {Channel} pour {Login}", person.Login, person.Login);
                 continue;
             }
@@ -40,6 +46,9 @@ public static class Seed
                 setting.AlertChannel = person.Login;
                 log.LogInformation("Canal d'alerte corrigé en {Channel} pour {Login}", person.Login, person.Login);
             }
+
+            if (string.IsNullOrWhiteSpace(setting.BubbleColor) || !BubbleColors.IsHex(setting.BubbleColor))
+                setting.BubbleColor = bubble;
         }
 
         await db.SaveChangesAsync();

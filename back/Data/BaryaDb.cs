@@ -47,6 +47,7 @@ public sealed class UserSetting
 {
     public int AccountId { get; set; }
     public string AlertChannel { get; set; } = "";
+    public string BubbleColor { get; set; } = "";
 }
 
 public sealed class BaryaDb(DbContextOptions<BaryaDb> options) : DbContext(options)
@@ -102,6 +103,7 @@ public sealed class BaryaDb(DbContextOptions<BaryaDb> options) : DbContext(optio
             setting.HasKey(s => s.AccountId);
             setting.Property(s => s.AccountId).ValueGeneratedNever();
             setting.Property(s => s.AlertChannel).HasMaxLength(64).IsRequired();
+            setting.Property(s => s.BubbleColor).HasMaxLength(7).IsRequired();
         });
     }
 }

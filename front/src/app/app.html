@@ -1,5 +1,10 @@
 @if (chat.session(); as session) {
-  <div class="shell" (keydown)="onChatKey($event)">
+  <div
+    class="shell"
+    [style.--bubble-mine]="chat.myBubble()"
+    [style.--bubble-peer]="chat.peerBubble()"
+    (keydown)="onChatKey($event)"
+  >
     @if (showSettings()) {
       <div class="settings-page">
         <header class="top">
@@ -22,6 +27,18 @@
           <p class="deck">
             Les messages que tu n’as pas lus arrivent sur ce canal (par exemple bari ou freya). Le titre indique le pseudo, le texte reste générique.
             Laisse le champ vide pour ne plus en recevoir.
+          </p>
+          <label class="field color-field">
+            <span>Couleur de tes messages</span>
+            <input
+              type="color"
+              name="bubble"
+              [value]="bubbleColor()"
+              (input)="onBubble($event)"
+            />
+          </label>
+          <p class="deck">
+            Cette couleur s’applique à tous tes messages, aussi chez {{ session.peer }}.
           </p>
           @if (settingsNote()) {
             <p class="note">{{ settingsNote() }}</p>
@@ -75,13 +92,18 @@
         (click)="toggleSettings()"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6" />
           <path
-            d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M5.8 5.8l1.6 1.6M16.6 16.6l1.6 1.6M18.2 5.8l-1.6 1.6M7.4 16.6l-1.6 1.6"
+            d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"
             fill="none"
             stroke="currentColor"
             stroke-width="1.6"
-            stroke-linecap="round"
+          />
+          <path
+            d="M19.2 13.1c.03-.36.05-.73.05-1.1s-.02-.74-.05-1.1l1.85-1.45a.45.45 0 0 0 .11-.57l-1.75-3.03a.45.45 0 0 0-.54-.2l-2.18.88a6.4 6.4 0 0 0-1.9-1.1l-.33-2.32A.45.45 0 0 0 14 2.8h-4a.45.45 0 0 0-.44.38l-.33 2.32a6.4 6.4 0 0 0-1.9 1.1l-2.18-.88a.45.45 0 0 0-.54.2L2.86 8.88a.45.45 0 0 0 .11.57L4.82 10.9c-.03.36-.05.73-.05 1.1s.02.74.05 1.1L2.97 14.55a.45.45 0 0 0-.11.57l1.75 3.03c.12.2.34.28.54.2l2.18-.88a6.4 6.4 0 0 0 1.9 1.1l.33 2.32c.04.22.22.38.44.38h4a.45.45 0 0 0 .44-.38l.33-2.32a6.4 6.4 0 0 0 1.9-1.1l2.18.88c.2.08.42 0 .54-.2l1.75-3.03a.45.45 0 0 0-.11-.57L19.2 13.1Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linejoin="round"
           />
         </svg>
       </button>

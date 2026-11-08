@@ -78,6 +78,8 @@ export class ChatService {
   readonly hasOlder = signal(false);
   readonly loadingOlder = signal(false);
   readonly tail = signal(0);
+  readonly myBubble = signal('#3B82F6');
+  readonly peerBubble = signal('#8B5CF6');
 
   private apiBase = '';
   private connection: HubConnection | null = null;
@@ -168,22 +170,32 @@ export class ChatService {
     return `${this.apiBase}/api/gifs/${encodeURIComponent(name)}`;
   }
 
-  async loadSettings(): Promise<string> {
+  async loadSettings(): Promise<{ alertChannel: string; bubbleColor: string }> {
     const response = await this.authed('/api/settings');
     if (!response.ok) throw new Error('Les réglages ne répondent pas.');
-    const body = (await response.json().catch(() => null)) as { alertChannel?: string } | null;
-    return body?.alertChannel ?? '';
+    const body = (await response.json().catch(() => null)) as {
+      alertChannel?: string;
+      bubbleColor?: string;
+    } | null;
+    const bubbleColor = asBubble(body?.bubbleColor) || this.myBubble();
+    this.myBubble.set(bubbleColor);
+    return { alertChannel: body?.alertChannel ?? '', bubbleColor };
   }
 
-  async saveSettings(alertChannel: string): Promise<void> {
+  async saveSettings(alertChannel: string, bubbleColor: string): Promise<void> {
+    const color = asBubble(bubbleColor);
+    if (!color) throw new Error('Couleur invalide.');
     const response = await this.authed('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alertChannel }),
+      body: JSON.stringify({ alertChannel, bubbleColor: color }),
     });
-    if (response.ok) return;
+    if (response.ok) {
+      this.myBubble.set(color);
+      return;
+    }
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? 'Le canal n’a pas été enregistré.');
+    throw new Error(body?.error ?? 'Les réglages n’ont pas été enregistrés.');
   }
 
   logout(): void {
@@ -321,13 +333,33 @@ export class ChatService {
       .withAutomaticReconnect([0, 1000, 2000, 5000, 10000, 15000, 30000])
       .build();
 
-    connection.on('hello', (payload: { peer?: string; peerPresence?: string }) => {
-      const session = this.session();
-      if (session && payload.peer) {
-        this.session.set({ ...session, peer: payload.peer });
-        this.remember(payload.peer, asPresence(payload.peerPresence));
+    connection.on(
+      'hello',
+      (payload: {
+        peer?: string;
+        peerPresence?: string;
+        myBubble?: string;
+        peerBubble?: string;
+      }) => {
+        const session = this.session();
+        if (session && payload.peer) {
+          this.session.set({ ...session, peer: payload.peer });
+          this.remember(payload.peer, asPresence(payload.peerPresence));
+        }
+        const mine = asBubble(payload.myBubble);
+        const peer = asBubble(payload.peerBubble);
+        if (mine) this.myBubble.set(mine);
+        if (peer) this.peerBubble.set(peer);
+        this.ready.set(true);
+      },
+    );
+    connection.on('bubble', (payload: { from?: string; color?: string }) => {
+      const color = asBubble(payload.color);
+      if (!color) return;
+      const peer = this.session()?.peer;
+      if (peer && payload.from && payload.from.toLowerCase() === peer.toLowerCase()) {
+        this.peerBubble.set(color);
       }
-      this.ready.set(true);
     });
     connection.on('history', (payload: { messages?: unknown; older?: boolean }) => {
       const wires = Array.isArray(payload.messages) ? payload.messages : [];
@@ -524,6 +556,8 @@ export class ChatService {
 
   private applySession(payload: SessionPayload): void {
     this.session.set({ token: payload.token, me: payload.displayName, peer: payload.peerName });
+    this.myBubble.set(defaultBubble(payload.displayName));
+    this.peerBubble.set(defaultBubble(payload.peerName));
     this.auth.token = payload.token;
     this.auth.me = payload.displayName;
     this.auth.peer = payload.peerName;
@@ -550,6 +584,8 @@ export class ChatService {
     this.auth.refresh = refresh;
     this.auth.renew = renew;
     this.session.set({ token, me, peer });
+    this.myBubble.set(defaultBubble(me));
+    this.peerBubble.set(defaultBubble(peer));
     this.scheduleRefresh(token);
     return true;
   }
@@ -753,6 +789,16 @@ function wait(ms: number): Promise<void> {
 function asPresence(value: unknown): Presence {
   if (value === 'online' || value === 'away' || value === 'afk' || value === 'offline') return value;
   return 'offline';
+}
+
+function asBubble(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const hex = value.trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : '';
+}
+
+function defaultBubble(name: string): string {
+  return name.toLowerCase().includes('freya') ? '#8B5CF6' : '#3B82F6';
 }
 
 function asReceipt(value: unknown): Receipt | null {

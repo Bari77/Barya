@@ -132,32 +132,56 @@ app.MapPost("/api/refresh", async (RefreshBody? body, HttpContext http, BaryaDb 
         peerName = users.Peer(account.Id).Name,
     });
 });
-app.MapGet("/api/settings", async (HttpContext http, BaryaDb db) =>
+app.MapGet("/api/settings", async (HttpContext http, BaryaDb db, UserDirectory users) =>
 {
     var id = CurrentUser(http);
     if (id is null)
         return Results.Unauthorized();
+    var self = users.Get(id.Value);
     var setting = await db.Settings.AsNoTracking().FirstOrDefaultAsync(item => item.AccountId == id);
-    return Results.Ok(new { alertChannel = setting?.AlertChannel ?? "" });
+    return Results.Ok(new
+    {
+        alertChannel = setting?.AlertChannel ?? "",
+        bubbleColor = BubbleColors.Normalize(setting?.BubbleColor, self.Login),
+    });
 }).RequireAuthorization();
-app.MapPut("/api/settings", async (SettingsBody body, HttpContext http, BaryaDb db) =>
+app.MapPut("/api/settings", async (
+    SettingsBody body,
+    HttpContext http,
+    BaryaDb db,
+    UserDirectory users,
+    IHubContext<ChatHub> hub) =>
 {
     var id = CurrentUser(http);
     if (id is null)
         return Results.Unauthorized();
+    var self = users.Get(id.Value);
     var channel = (body.AlertChannel ?? "").Trim();
     if (channel.Length > 64)
         return Results.Json(new { error = "Le canal est trop long." }, statusCode: 400);
     if (channel.Any(letter => !(char.IsLetterOrDigit(letter) || letter is ' ' or '-' or '_')))
         return Results.Json(new { error = "Le canal contient un caractère refusé." }, statusCode: 400);
+    if (!BubbleColors.TryParse(body.BubbleColor, out var bubble))
+        return Results.Json(new { error = "Couleur invalide." }, statusCode: 400);
 
     var setting = await db.Settings.FirstOrDefaultAsync(item => item.AccountId == id);
     if (setting is null)
-        db.Settings.Add(new UserSetting { AccountId = id.Value, AlertChannel = channel });
+        db.Settings.Add(new UserSetting { AccountId = id.Value, AlertChannel = channel, BubbleColor = bubble });
     else
+    {
         setting.AlertChannel = channel;
+        setting.BubbleColor = bubble;
+    }
     await db.SaveChangesAsync();
-    return Results.Ok(new { alertChannel = channel });
+
+    var peer = users.Peer(id.Value);
+    if (peer.Id != 0)
+    {
+        await hub.Clients.User(peer.Id.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .SendAsync("bubble", new BubbleNotice(self.Name, bubble));
+    }
+
+    return Results.Ok(new { alertChannel = channel, bubbleColor = bubble });
 }).RequireAuthorization();
 app.MapPost("/api/logout", async (RefreshBody? body, HttpContext http, BaryaDb db) =>
 {
@@ -203,8 +227,11 @@ static async Task PrepareDatabase(WebApplication app)
                 IF OBJECT_ID(N'dbo.Settings', N'U') IS NULL
                 CREATE TABLE dbo.Settings (
                     AccountId int NOT NULL PRIMARY KEY,
-                    AlertChannel nvarchar(64) NOT NULL
+                    AlertChannel nvarchar(64) NOT NULL,
+                    BubbleColor nvarchar(7) NOT NULL CONSTRAINT DF_Settings_BubbleColor DEFAULT N''
                 );
+                IF COL_LENGTH(N'dbo.Settings', N'BubbleColor') IS NULL
+                ALTER TABLE dbo.Settings ADD BubbleColor nvarchar(7) NOT NULL CONSTRAINT DF_Settings_BubbleColor DEFAULT N'';
                 IF COL_LENGTH(N'dbo.Messages', N'EditedAt') IS NULL
                 ALTER TABLE dbo.Messages ADD EditedAt datetime2 NULL;
                 """);
@@ -243,4 +270,4 @@ sealed record LoginBody(string? Login, string? Password);
 
 sealed record RefreshBody(string? Refresh, string? Renew);
 
-sealed record SettingsBody(string? AlertChannel);
+sealed record SettingsBody(string? AlertChannel, string? BubbleColor);
